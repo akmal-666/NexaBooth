@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rtk ls *)",
+      "Bash(npm create *)",
+      "Bash(npx create-vite@latest . --template react-ts)",
+      "Bash(rtk pnpm *)",
+      "Bash(npm install *)",
+      "Bash(rtk npm *)"
+    ]
+  }
+}

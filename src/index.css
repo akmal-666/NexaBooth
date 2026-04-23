@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply h-full bg-surface text-primary-900 antialiased;
+    overscroll-behavior: none;
+  }
+
+  #root {
+    @apply h-full;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-primary-200 rounded-full;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply flex items-center justify-center gap-2 rounded-2xl bg-primary-900 px-6 py-3.5
+           font-semibold text-white shadow-sm transition-all
+           hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-accent {
+    @apply flex items-center justify-center gap-2 rounded-2xl bg-accent-500 px-6 py-3.5
+           font-semibold text-white shadow-sm transition-all
+           hover:bg-accent-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply flex items-center justify-center gap-2 rounded-2xl border border-primary-200 px-6 py-3.5
+           font-semibold text-primary-900 transition-all
+           hover:bg-primary-50 active:scale-95 disabled:opacity-50;
+  }
+
+  .card {
+    @apply rounded-3xl bg-white shadow-card p-4;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-primary-100 bg-white px-4 py-3
+           text-primary-900 placeholder-primary-400 outline-none transition
+           focus:border-primary-500 focus:ring-2 focus:ring-primary-100;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
+  }
+
+  .badge-success {
+    @apply badge bg-green-100 text-green-700;
+  }
+
+  .badge-error {
+    @apply badge bg-red-100 text-red-700;
+  }
+
+  .badge-pending {
+    @apply badge bg-yellow-100 text-yellow-700;
+  }
+
+  .badge-info {
+    @apply badge bg-primary-100 text-primary-700;
+  }
+}
+
+/* Print styles */
+@media print {
+  body * { visibility: hidden !important; }
+  #print-area, #print-area * { visibility: visible !important; }
+  #print-area {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+  }
+}

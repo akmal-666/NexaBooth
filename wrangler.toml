@@ -1,0 +1,29 @@
+name = "nexabooth"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nexabooth-db"
+database_id = "YOUR_D1_DATABASE_ID"
+
+# Environment variables (set real values in CF Dashboard or .dev.vars)
+# [vars]
+# MIDTRANS_CLIENT_KEY = "..."
+# MIDTRANS_SERVER_KEY = "..."
+# ADMIN_PASSWORD = "..."
+
+# ─── Setup steps ────────────────────────────────────────────────────────────
+# 1. Create D1 database:
+#    wrangler d1 create nexabooth-db
+#    → Copy the database_id above
+#
+# 2. Run migrations:
+#    npm run db:migrate:local   (local dev)
+#    npm run db:migrate:remote  (production)
+#    npm run db:seed:local
+#    npm run db:seed:remote
+#
+# 3. Deploy:
+#    npm run deploy
+# ─────────────────────────────────────────────────────────────────────────────
