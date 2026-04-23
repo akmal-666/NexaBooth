@@ -5,7 +5,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "nexabooth-db"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "3d019b84-8dc7-4b42-8551-1517fab0df0a"
 
 # Environment variables (set real values in CF Dashboard or .dev.vars)
 # [vars]
