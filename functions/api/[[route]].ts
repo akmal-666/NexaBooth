@@ -7,6 +7,11 @@ interface Env {
   MIDTRANS_SERVER_KEY?: string
   MIDTRANS_CLIENT_KEY?: string
   ADMIN_PASSWORD?: string
+  MAILGUN_API_KEY?: string
+  MAILGUN_DOMAIN?: string
+  TWILIO_ACCOUNT_SID?: string
+  TWILIO_AUTH_TOKEN?: string
+  TWILIO_FROM?: string
 }
 
 type Variables = Record<string, never>
@@ -21,11 +26,8 @@ app.use('*', cors({
 }))
 
 // ── Helper ────────────────────────────────────────────────────────────────
-function json<T>(data: T, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
+function checkAdmin(password: string | undefined, envPass: string | undefined): boolean {
+  return !!password && password === (envPass ?? 'admin123')
 }
 
 // ── FRAMES ────────────────────────────────────────────────────────────────
@@ -157,7 +159,6 @@ app.post('/sessions/:id/photos', async (c) => {
     .first<{ id: string; status: string }>()
   if (!session) return c.json({ error: 'Session not found or not eligible' }, 404)
 
-  // Promote to 'capturing'
   if (session.status === 'paid') {
     await c.env.DB
       .prepare("UPDATE sessions SET status = 'capturing' WHERE id = ?")
@@ -165,7 +166,6 @@ app.post('/sessions/:id/photos', async (c) => {
       .run()
   }
 
-  // Upsert photo
   const photoId = crypto.randomUUID()
   await c.env.DB
     .prepare(`
@@ -197,6 +197,96 @@ app.get('/sessions/:id/photos/:index', async (c) => {
   return c.json({ photo })
 })
 
+// ── SURVEY ────────────────────────────────────────────────────────────────
+app.post('/sessions/:id/survey', async (c) => {
+  const sessionId = c.req.param('id')
+  const body = await c.req.json<{ rating?: number; comment?: string; email?: string }>()
+  const { rating, comment, email } = body
+
+  if (!rating || rating < 1 || rating > 5) {
+    return c.json({ error: 'rating (1-5) required' }, 400)
+  }
+
+  const id = crypto.randomUUID()
+  await c.env.DB
+    .prepare('INSERT INTO surveys (id, session_id, rating, comment, email) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, sessionId, rating, comment ?? null, email ?? null)
+    .run()
+
+  return c.json({ success: true })
+})
+
+// ── EMAIL DELIVERY ────────────────────────────────────────────────────────
+app.post('/sessions/:id/email', async (c) => {
+  const sessionId = c.req.param('id')
+  const { email } = await c.req.json<{ email?: string }>()
+  if (!email) return c.json({ error: 'email required' }, 400)
+
+  // Update customer_email on the session
+  await c.env.DB
+    .prepare('UPDATE sessions SET customer_email = ? WHERE id = ?')
+    .bind(email, sessionId)
+    .run()
+
+  // Send via Mailgun if configured
+  if (c.env.MAILGUN_API_KEY && c.env.MAILGUN_DOMAIN) {
+    const galleryUrl = `https://YOUR_DOMAIN/gallery?session=${sessionId}`
+    const form = new FormData()
+    form.append('from', `NexaBooth <noreply@${c.env.MAILGUN_DOMAIN}>`)
+    form.append('to', email)
+    form.append('subject', 'Your NexaBooth Photos are ready!')
+    form.append('html', `
+      <h2>Your photos are ready! 📸</h2>
+      <p>Thank you for using NexaBooth.</p>
+      <p><a href="${galleryUrl}" style="background:#1E2A6E;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;">View My Photos</a></p>
+    `)
+
+    await fetch(`https://api.mailgun.net/v3/${c.env.MAILGUN_DOMAIN}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${btoa(`api:${c.env.MAILGUN_API_KEY}`)}` },
+      body: form,
+    })
+  }
+
+  return c.json({ success: true })
+})
+
+// ── SMS DELIVERY ──────────────────────────────────────────────────────────
+app.post('/sessions/:id/sms', async (c) => {
+  const sessionId = c.req.param('id')
+  const { phone } = await c.req.json<{ phone?: string }>()
+  if (!phone) return c.json({ error: 'phone required' }, 400)
+
+  await c.env.DB
+    .prepare('UPDATE sessions SET customer_phone = ? WHERE id = ?')
+    .bind(phone, sessionId)
+    .run()
+
+  // Send via Twilio if configured
+  if (c.env.TWILIO_ACCOUNT_SID && c.env.TWILIO_AUTH_TOKEN && c.env.TWILIO_FROM) {
+    const galleryUrl = `https://YOUR_DOMAIN/gallery?session=${sessionId}`
+    const body = new URLSearchParams({
+      From: c.env.TWILIO_FROM,
+      To: phone,
+      Body: `Your NexaBooth photos are ready! View them here: ${galleryUrl}`,
+    })
+
+    await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${c.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${btoa(`${c.env.TWILIO_ACCOUNT_SID}:${c.env.TWILIO_AUTH_TOKEN}`)}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+      }
+    )
+  }
+
+  return c.json({ success: true })
+})
+
 // ── PAYMENTS ──────────────────────────────────────────────────────────────
 app.post('/payments/create', async (c) => {
   const { sessionId } = await c.req.json<{ sessionId?: string }>()
@@ -216,7 +306,6 @@ app.post('/payments/create', async (c) => {
     }>()
   if (!session) return c.json({ error: 'Session not found or already paid' }, 404)
 
-  // Real Midtrans
   if (c.env.MIDTRANS_SERVER_KEY) {
     const isSandbox = c.env.MIDTRANS_SERVER_KEY.startsWith('SB-')
     const snapUrl = isSandbox
@@ -261,7 +350,6 @@ app.post('/payments/create', async (c) => {
     })
   }
 
-  // Mock mode
   return c.json({ mode: 'mock', sessionId, amount: session.total_amount })
 })
 
@@ -287,7 +375,6 @@ app.post('/payments/confirm-mock', async (c) => {
   return c.json({ success: true, paymentRef: ref })
 })
 
-// Midtrans webhook
 app.post('/payments/notify', async (c) => {
   const body = await c.req.json<{
     order_id?: string
@@ -297,7 +384,6 @@ app.post('/payments/notify', async (c) => {
   }>()
 
   const { order_id, transaction_status, payment_type, transaction_id } = body
-
   if (!order_id || !transaction_status) return c.json({ ok: true })
 
   if (['capture', 'settlement'].includes(transaction_status)) {
@@ -322,10 +408,6 @@ app.post('/payments/notify', async (c) => {
 })
 
 // ── ADMIN (password-gated) ────────────────────────────────────────────────
-function checkAdmin(password: string | undefined, envPass: string | undefined): boolean {
-  return !!password && password === (envPass ?? 'admin123')
-}
-
 app.get('/admin/stats', async (c) => {
   if (!checkAdmin(c.req.header('x-admin-password'), c.env.ADMIN_PASSWORD)) {
     return c.json({ error: 'Unauthorized' }, 401)
@@ -434,6 +516,128 @@ app.put('/admin/frames/:id', async (c) => {
     .prepare(`UPDATE frames SET ${sets.join(', ')} WHERE id = ?`)
     .bind(...vals)
     .run()
+
+  return c.json({ success: true })
+})
+
+// ── ADMIN ANALYTICS ───────────────────────────────────────────────────────
+app.get('/admin/analytics', async (c) => {
+  if (!checkAdmin(c.req.header('x-admin-password'), c.env.ADMIN_PASSWORD)) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const [daily, topFrames, ratings] = await Promise.all([
+    c.env.DB.prepare(`
+      SELECT date(created_at) AS date,
+             SUM(total_amount) AS revenue,
+             COUNT(*) AS count
+      FROM sessions
+      WHERE payment_status = 'paid'
+        AND created_at >= date('now', '-14 days')
+      GROUP BY date(created_at)
+      ORDER BY date ASC
+    `).all<{ date: string; revenue: number; count: number }>(),
+
+    c.env.DB.prepare(`
+      SELECT f.name AS frame_name,
+             COUNT(*) AS count,
+             SUM(s.total_amount) AS revenue
+      FROM sessions s
+      LEFT JOIN frames f ON s.frame_id = f.id
+      WHERE s.payment_status = 'paid'
+      GROUP BY s.frame_id
+      ORDER BY count DESC
+      LIMIT 5
+    `).all<{ frame_name: string; count: number; revenue: number }>(),
+
+    c.env.DB.prepare(`
+      SELECT AVG(rating) AS avg, COUNT(*) AS total FROM surveys
+    `).first<{ avg: number; total: number }>(),
+  ])
+
+  return c.json({
+    daily: daily.results,
+    topFrames: topFrames.results,
+    ratings: { avg: ratings?.avg ?? 0, total: ratings?.total ?? 0 },
+  })
+})
+
+// ── ADMIN EXPORT (CSV) ────────────────────────────────────────────────────
+app.get('/admin/export', async (c) => {
+  if (!checkAdmin(c.req.header('x-admin-password'), c.env.ADMIN_PASSWORD)) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+
+  const { results } = await c.env.DB.prepare(`
+    SELECT s.id, f.name AS frame_name, s.status, s.payment_status,
+           s.payment_method, s.payment_ref, s.total_amount,
+           s.customer_email, s.customer_phone,
+           s.created_at, s.paid_at, s.completed_at
+    FROM sessions s
+    LEFT JOIN frames f ON s.frame_id = f.id
+    ORDER BY s.created_at DESC
+  `).all<Record<string, unknown>>()
+
+  const headers = [
+    'ID', 'Frame', 'Status', 'Payment Status', 'Payment Method',
+    'Payment Ref', 'Amount (IDR)', 'Email', 'Phone',
+    'Created At', 'Paid At', 'Completed At',
+  ]
+
+  const rows = results.map(r => [
+    r.id, r.frame_name, r.status, r.payment_status, r.payment_method ?? '',
+    r.payment_ref ?? '', r.total_amount, r.customer_email ?? '', r.customer_phone ?? '',
+    r.created_at, r.paid_at ?? '', r.completed_at ?? '',
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+
+  const csv = [headers.join(','), ...rows].join('\n')
+
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': 'attachment; filename="nexabooth-sessions.csv"',
+    },
+  })
+})
+
+// ── ADMIN SETTINGS ────────────────────────────────────────────────────────
+app.get('/admin/settings', async (c) => {
+  if (!checkAdmin(c.req.header('x-admin-password'), c.env.ADMIN_PASSWORD)) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const { results } = await c.env.DB
+    .prepare('SELECT key, value FROM settings')
+    .all<{ key: string; value: string }>()
+
+  const map: Record<string, string> = {}
+  for (const row of results) map[row.key] = row.value
+
+  return c.json({
+    watermark_enabled: map['watermark_enabled'] ?? '0',
+    watermark_text:    map['watermark_text']    ?? 'NexaBooth',
+    watermark_opacity: map['watermark_opacity'] ?? '0.25',
+    email_enabled:     map['email_enabled']     ?? '0',
+    sms_enabled:       map['sms_enabled']       ?? '0',
+  })
+})
+
+app.put('/admin/settings', async (c) => {
+  if (!checkAdmin(c.req.header('x-admin-password'), c.env.ADMIN_PASSWORD)) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const body = await c.req.json<Record<string, string>>()
+  const allowed = ['watermark_enabled', 'watermark_text', 'watermark_opacity', 'email_enabled', 'sms_enabled']
+
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      await c.env.DB
+        .prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+        .bind(key, String(body[key]))
+        .run()
+    }
+  }
 
   return c.json({ success: true })
 })

@@ -6,7 +6,12 @@
       "Bash(npx create-vite@latest . --template react-ts)",
       "Bash(rtk pnpm *)",
       "Bash(npm install *)",
-      "Bash(rtk npm *)"
+      "Bash(rtk npm *)",
+      "Bash(rtk curl *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(pkill -f \"vite\")",
+      "Bash(rtk tsc *)",
+      "Bash(lsof -ti:5173)"
     ]
   }
 }

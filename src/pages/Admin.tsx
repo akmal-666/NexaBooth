@@ -2,17 +2,19 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart3, Users, DollarSign, TrendingUp,
-  ChevronRight, Plus, Pencil, ToggleLeft, ToggleRight, Lock
+  ChevronRight, Plus, Pencil, ToggleLeft, ToggleRight, Lock,
+  Download, Settings, Star, Monitor, SlidersHorizontal,
 } from 'lucide-react'
-import type { Frame, Session } from '../types'
+import type { Frame, Session, Analytics, AppSettings } from '../types'
 import {
   getAdminStats, getAdminSessions, getAdminFrames,
-  updateAdminFrame, createAdminFrame
+  updateAdminFrame, createAdminFrame,
+  getAnalytics, exportCsv, getSettings, updateSettings,
 } from '../lib/api'
 import { formatIDR, formatDate, generateSessionCode } from '../lib/utils'
 import Spinner from '../components/Spinner'
 
-type Tab = 'dashboard' | 'sessions' | 'frames'
+type Tab = 'dashboard' | 'sessions' | 'frames' | 'analytics' | 'settings'
 
 interface Stats {
   sessions: { total: number; paid: number }
@@ -37,9 +39,13 @@ export default function Admin() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [frames, setFrames] = useState<Frame[]>([])
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
+  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [loading, setLoading] = useState(false)
   const [showFrameForm, setShowFrameForm] = useState(false)
   const [editFrame, setEditFrame] = useState<Frame | null>(null)
+  const [exportingCsv, setExportingCsv] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
@@ -48,6 +54,7 @@ export default function Admin() {
     try {
       const data = await getAdminStats(password)
       setStats(data)
+      sessionStorage.setItem('adminPw', password)
       setAuthed(true)
     } catch {
       setAuthError('Invalid password')
@@ -61,6 +68,8 @@ export default function Admin() {
     if (tab === 'dashboard') loadStats()
     if (tab === 'sessions')  loadSessions()
     if (tab === 'frames')    loadFrames()
+    if (tab === 'analytics') loadAnalytics()
+    if (tab === 'settings')  loadSettings()
   }, [authed, tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadStats() {
@@ -85,9 +94,49 @@ export default function Admin() {
     } finally { setLoading(false) }
   }
 
+  async function loadAnalytics() {
+    setLoading(true)
+    try { setAnalytics(await getAnalytics(password)) }
+    finally { setLoading(false) }
+  }
+
+  async function loadSettings() {
+    setLoading(true)
+    try { setSettings(await getSettings(password)) }
+    finally { setLoading(false) }
+  }
+
   async function toggleFrame(frame: Frame) {
     await updateAdminFrame(password, frame.id, { isActive: frame.is_active ? 0 : 1 })
     loadFrames()
+  }
+
+  async function handleExportCsv() {
+    setExportingCsv(true)
+    try {
+      const csv = await exportCsv(password)
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `nexabooth-sessions-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Export failed')
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
+  async function handleSaveSettings() {
+    if (!settings) return
+    setSavingSettings(true)
+    try {
+      await updateSettings(password, settings)
+    } finally {
+      setSavingSettings(false)
+    }
   }
 
   // ── Login screen ──────────────────────────────────────────────────────────
@@ -121,6 +170,14 @@ export default function Admin() {
     )
   }
 
+  const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'dashboard', label: 'Dash',      icon: <BarChart3 size={14} /> },
+    { id: 'sessions',  label: 'Sessions',  icon: <Users size={14} /> },
+    { id: 'frames',    label: 'Frames',    icon: <Monitor size={14} /> },
+    { id: 'analytics', label: 'Analytics', icon: <TrendingUp size={14} /> },
+    { id: 'settings',  label: 'Settings',  icon: <Settings size={14} /> },
+  ]
+
   // ── Main admin UI ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-full bg-surface">
@@ -129,7 +186,7 @@ export default function Admin() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-bold text-xl text-primary-900">Admin Dashboard</h1>
           <button
-            onClick={() => setAuthed(false)}
+            onClick={() => { setAuthed(false); sessionStorage.removeItem('adminPw') }}
             className="text-sm text-primary-400 hover:text-primary-700"
           >
             Sign out
@@ -137,16 +194,17 @@ export default function Admin() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-surface rounded-2xl p-1">
-          {(['dashboard', 'sessions', 'frames'] as Tab[]).map(t => (
+        <div className="flex gap-1 bg-surface rounded-2xl p-1 overflow-x-auto">
+          {TABS.map(t => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold capitalize transition-colors ${
-                tab === t ? 'bg-white text-primary-900 shadow-sm' : 'text-primary-400'
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex-shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                tab === t.id ? 'bg-white text-primary-900 shadow-sm' : 'text-primary-400'
               }`}
             >
-              {t}
+              {t.icon}
+              {t.label}
             </button>
           ))}
         </div>
@@ -190,6 +248,9 @@ export default function Admin() {
               {[
                 { label: 'Manage Frames', action: () => setTab('frames') },
                 { label: 'View Sessions', action: () => setTab('sessions') },
+                { label: 'Analytics', action: () => setTab('analytics') },
+                { label: 'Slideshow', action: () => window.open('/slideshow', '_blank') },
+                { label: 'Kiosk Mode', action: () => window.open('/kiosk', '_blank') },
               ].map(({ label, action }) => (
                 <button
                   key={label}
@@ -207,6 +268,14 @@ export default function Admin() {
         {/* ── Sessions ── */}
         {tab === 'sessions' && (
           <>
+            <button
+              onClick={handleExportCsv}
+              disabled={exportingCsv}
+              className="btn-ghost w-full flex items-center gap-2"
+            >
+              {exportingCsv ? <Spinner size="sm" /> : <Download size={16} />}
+              Export CSV
+            </button>
             {loading ? (
               <div className="flex justify-center py-12"><Spinner /></div>
             ) : sessions.length === 0 ? (
@@ -284,6 +353,198 @@ export default function Admin() {
                   </div>
                 ))}
               </div>
+            )}
+          </>
+        )}
+
+        {/* ── Analytics ── */}
+        {tab === 'analytics' && (
+          <>
+            {loading ? (
+              <div className="flex justify-center py-12"><Spinner /></div>
+            ) : analytics ? (
+              <>
+                {/* Rating summary */}
+                {analytics.ratings.total > 0 && (
+                  <div className="card flex items-center gap-4">
+                    <div className="h-14 w-14 rounded-2xl bg-yellow-100 flex items-center justify-center">
+                      <Star size={24} className="text-yellow-500 fill-yellow-500" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-primary-900">
+                        {analytics.ratings.avg.toFixed(1)}
+                        <span className="text-sm text-primary-400 font-normal"> / 5</span>
+                      </p>
+                      <p className="text-xs text-primary-400">{analytics.ratings.total} reviews</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Daily revenue chart */}
+                <div className="card">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-primary-900">Daily Revenue (last 14 days)</h3>
+                    <button
+                      onClick={handleExportCsv}
+                      disabled={exportingCsv}
+                      className="flex items-center gap-1 text-xs text-primary-500 hover:text-primary-900"
+                    >
+                      <Download size={14} />
+                      CSV
+                    </button>
+                  </div>
+                  {analytics.daily.length === 0 ? (
+                    <p className="text-primary-400 text-sm text-center py-6">No data yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(() => {
+                        const maxRevenue = Math.max(...analytics.daily.map(d => d.revenue), 1)
+                        return analytics.daily.map(d => (
+                          <div key={d.date} className="flex items-center gap-3">
+                            <span className="text-xs text-primary-400 w-20 flex-shrink-0">
+                              {new Date(d.date).toLocaleDateString('id-ID', { month: 'short', day: 'numeric' })}
+                            </span>
+                            <div className="flex-1 bg-surface rounded-full h-5 overflow-hidden">
+                              <div
+                                className="h-full bg-accent rounded-full flex items-center px-2 transition-all"
+                                style={{ width: `${(d.revenue / maxRevenue) * 100}%`, minWidth: d.revenue > 0 ? '2rem' : 0 }}
+                              >
+                                {d.revenue > 0 && (
+                                  <span className="text-white text-[9px] font-bold truncate">
+                                    {d.count}×
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-xs font-semibold text-primary-700 w-24 text-right flex-shrink-0">
+                              {formatIDR(d.revenue)}
+                            </span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Top frames */}
+                {analytics.topFrames.length > 0 && (
+                  <div className="card">
+                    <h3 className="font-semibold text-primary-900 mb-4">Top Frames</h3>
+                    <div className="space-y-3">
+                      {analytics.topFrames.map((f, i) => (
+                        <div key={f.frame_name} className="flex items-center gap-3">
+                          <span className="h-7 w-7 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                            {i + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-primary-900 text-sm truncate">{f.frame_name}</p>
+                            <p className="text-xs text-primary-400">{f.count} sessions</p>
+                          </div>
+                          <span className="text-sm font-bold text-primary-700 flex-shrink-0">
+                            {formatIDR(f.revenue)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-center text-primary-400 py-12">No analytics data</p>
+            )}
+          </>
+        )}
+
+        {/* ── Settings ── */}
+        {tab === 'settings' && (
+          <>
+            {loading ? (
+              <div className="flex justify-center py-12"><Spinner /></div>
+            ) : settings ? (
+              <>
+                {/* Watermark */}
+                <div className="card space-y-4">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal size={18} className="text-primary-500" />
+                    <h3 className="font-semibold text-primary-900">Watermark / Branding</h3>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-primary-900">Enable watermark</span>
+                    <button
+                      onClick={() => setSettings(s => s ? { ...s, watermark_enabled: s.watermark_enabled === '1' ? '0' : '1' } : s)}
+                      className="p-1"
+                    >
+                      {settings.watermark_enabled === '1'
+                        ? <ToggleRight size={26} className="text-green-500" />
+                        : <ToggleLeft  size={26} className="text-primary-300" />}
+                    </button>
+                  </div>
+
+                  {settings.watermark_enabled === '1' && (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold text-primary-500 uppercase tracking-wide">Watermark text</label>
+                        <input
+                          value={settings.watermark_text}
+                          onChange={e => setSettings(s => s ? { ...s, watermark_text: e.target.value } : s)}
+                          className="input mt-1"
+                          placeholder="NexaBooth"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-primary-500 uppercase tracking-wide">
+                          Opacity: {Math.round(Number(settings.watermark_opacity) * 100)}%
+                        </label>
+                        <input
+                          type="range"
+                          min="0.05"
+                          max="0.8"
+                          step="0.05"
+                          value={settings.watermark_opacity}
+                          onChange={e => setSettings(s => s ? { ...s, watermark_opacity: e.target.value } : s)}
+                          className="w-full mt-2 accent-accent"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Delivery settings */}
+                <div className="card space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Settings size={18} className="text-primary-500" />
+                    <h3 className="font-semibold text-primary-900">Delivery Features</h3>
+                  </div>
+
+                  {[
+                    { key: 'email_enabled' as keyof AppSettings, label: 'Email delivery' },
+                    { key: 'sms_enabled'   as keyof AppSettings, label: 'SMS / WhatsApp delivery' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-primary-900">{label}</span>
+                      <button
+                        onClick={() => setSettings(s => s ? { ...s, [key]: s[key] === '1' ? '0' : '1' } : s)}
+                        className="p-1"
+                      >
+                        {settings[key] === '1'
+                          ? <ToggleRight size={26} className="text-green-500" />
+                          : <ToggleLeft  size={26} className="text-primary-300" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={savingSettings}
+                  className="btn-primary w-full"
+                >
+                  {savingSettings ? <Spinner size="sm" /> : 'Save Settings'}
+                </button>
+              </>
+            ) : (
+              <p className="text-center text-primary-400 py-12">Failed to load settings</p>
             )}
           </>
         )}

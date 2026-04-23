@@ -1,4 +1,4 @@
-import type { Frame, Session, Photo, PhotoFilter } from '../types'
+import type { Frame, Session, Photo, PhotoFilter, Analytics, AppSettings } from '../types'
 
 const BASE = '/api'
 
@@ -147,6 +147,62 @@ export async function createAdminFrame(password: string, frame: FramePayload) {
 
 export async function updateAdminFrame(password: string, id: string, patch: FramePayload) {
   await request(`/admin/frames/${id}`, {
+    method: 'PUT',
+    headers: adminHeaders(password),
+    body: JSON.stringify(patch),
+  })
+}
+
+// ── Survey ────────────────────────────────────────────────────────────────────
+
+export async function submitSurvey(
+  sessionId: string,
+  data: { rating: number; comment?: string; email?: string }
+): Promise<void> {
+  await request(`/sessions/${sessionId}/survey`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+// ── Delivery ──────────────────────────────────────────────────────────────────
+
+export async function sendEmail(sessionId: string, email: string): Promise<void> {
+  await request(`/sessions/${sessionId}/email`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function sendSms(sessionId: string, phone: string): Promise<void> {
+  await request(`/sessions/${sessionId}/sms`, {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+export async function getAnalytics(password: string): Promise<Analytics> {
+  return request<Analytics>('/admin/analytics', { headers: adminHeaders(password) })
+}
+
+export async function exportCsv(password: string): Promise<string> {
+  const res = await fetch('/api/admin/export', {
+    headers: { ...adminHeaders(password) },
+  })
+  if (!res.ok) throw new Error('Export failed')
+  return res.text()
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+export async function getSettings(password: string): Promise<AppSettings> {
+  return request<AppSettings>('/admin/settings', { headers: adminHeaders(password) })
+}
+
+export async function updateSettings(password: string, patch: Partial<AppSettings>): Promise<void> {
+  await request('/admin/settings', {
     method: 'PUT',
     headers: adminHeaders(password),
     body: JSON.stringify(patch),

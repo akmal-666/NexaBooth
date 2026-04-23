@@ -139,3 +139,32 @@ export const FILTER_LABELS: Record<PhotoFilter, string> = {
   warm:      'Warm',
   fade:      'Fade',
 }
+
+export interface Survey {
+  id: string
+  session_id: string
+  rating: number
+  comment: string | null
+  email: string | null
+  created_at: string
+}
+
+export interface DailyRevenue {
+  date: string
+  revenue: number
+  count: number
+}
+
+export interface Analytics {
+  daily: DailyRevenue[]
+  topFrames: { frame_name: string; count: number; revenue: number }[]
+  ratings: { avg: number; total: number }
+}
+
+export interface AppSettings {
+  watermark_enabled: string
+  watermark_text: string
+  watermark_opacity: string
+  email_enabled: string
+  sms_enabled: string
+}

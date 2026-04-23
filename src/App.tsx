@@ -9,6 +9,8 @@ import Preview from './pages/Preview'
 import PrintPage from './pages/Print'
 import Gallery from './pages/Gallery'
 import Admin from './pages/Admin'
+import Kiosk from './pages/Kiosk'
+import Slideshow from './pages/Slideshow'
 
 export default function App() {
   return (
@@ -27,6 +29,10 @@ export default function App() {
         <Route path="capture/:sessionId" element={<Capture />} />
         <Route path="preview/:sessionId" element={<Preview />} />
         <Route path="print/:sessionId" element={<PrintPage />} />
+
+        {/* Standalone fullscreen modes */}
+        <Route path="kiosk" element={<Kiosk />} />
+        <Route path="slideshow" element={<Slideshow />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

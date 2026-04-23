@@ -6,8 +6,9 @@ interface RenderOptions {
   filter?: PhotoFilter
   borderColor?: string
   accentColor?: string
-  /** Optional text to emboss at the bottom of the composite */
   footerText?: string
+  watermarkText?: string
+  watermarkOpacity?: number
 }
 
 export async function renderComposite(
@@ -56,9 +57,32 @@ export async function renderComposite(
     ctx.fillText(opts.footerText, canvas.width / 2, canvas.height - fSize)
   }
 
-  // Apply filter post-render if needed (simulated via overlay blend)
+  // Apply filter post-render if needed
   if (opts.filter && opts.filter !== 'normal') {
     applyCanvasFilter(ctx, canvas.width, canvas.height, opts.filter)
+  }
+
+  // Watermark overlay
+  if (opts.watermarkText) {
+    const opacity = opts.watermarkOpacity ?? 0.25
+    const wSize = Math.round(cfg.canvasWidth * 0.04)
+    ctx.save()
+    ctx.globalAlpha = opacity
+    ctx.font = `bold ${wSize}px Inter, sans-serif`
+    ctx.fillStyle = '#FFFFFF'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    // Diagonal tiled watermark
+    ctx.translate(canvas.width / 2, canvas.height / 2)
+    ctx.rotate(-Math.PI / 6)
+    const stepX = canvas.width * 0.45
+    const stepY = canvas.height * 0.25
+    for (let row = -2; row <= 2; row++) {
+      for (let col = -2; col <= 2; col++) {
+        ctx.fillText(opts.watermarkText, col * stepX, row * stepY)
+      }
+    }
+    ctx.restore()
   }
 
   return canvas.toDataURL('image/jpeg', 0.95)

@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Printer, Download, Share2, QrCode, CheckCircle, Home } from 'lucide-react'
+import { ArrowLeft, Printer, Download, Share2, QrCode, CheckCircle, Home, Mail, Phone, Send } from 'lucide-react'
 import QRCode from 'qrcode'
 import type { Session, PhotoFilter } from '../types'
-import { getSession, getPhotos, updateSession } from '../lib/api'
+import { getSession, getPhotos, updateSession, sendEmail, sendSms } from '../lib/api'
 import { renderComposite, printImage } from '../lib/print'
 import { dataURLtoBlob, downloadBlob, generateSessionCode } from '../lib/utils'
 import Spinner from '../components/Spinner'
 import PhotoStrip from '../components/PhotoStrip'
+import SurveyModal from '../components/SurveyModal'
 
 export default function PrintPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -22,6 +23,16 @@ export default function PrintPage() {
   const [printing, setPrinting] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState('')
+  const [showSurvey, setShowSurvey] = useState(false)
+
+  // Delivery state
+  const [emailVal, setEmailVal] = useState('')
+  const [phoneVal, setPhoneVal] = useState('')
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [sendingSms, setSendingSms] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+  const [smsSent, setSmsSent] = useState(false)
+
   const printRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
@@ -29,12 +40,13 @@ export default function PrintPage() {
     Promise.all([getSession(sessionId), getPhotos(sessionId)])
       .then(async ([sess, dbPhotos]) => {
         setSession(sess)
+        if (sess.customer_email) setEmailVal(sess.customer_email)
+        if (sess.customer_phone) setPhoneVal(sess.customer_phone)
         const arr: (string | null)[] = Array(sess.photo_count ?? dbPhotos.length).fill(null)
         dbPhotos.forEach(p => { if (p.data) arr[p.photo_index] = p.data })
         setPhotos(arr)
         if (dbPhotos[0]?.filter) setFilter(dbPhotos[0].filter as PhotoFilter)
 
-        // Generate QR code
         const sessionUrl = `${window.location.origin}/gallery?session=${sess.id}`
         const qr = await QRCode.toDataURL(sessionUrl, { width: 200, margin: 1 })
         setQrData(qr)
@@ -61,15 +73,20 @@ export default function PrintPage() {
       .finally(() => setRendering(false))
   }, [session, photos, filter]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function markComplete() {
+    if (sessionId && !completed) {
+      await updateSession(sessionId, { status: 'completed' })
+      setCompleted(true)
+      setTimeout(() => setShowSurvey(true), 600)
+    }
+  }
+
   async function handlePrint() {
     if (!composite) return
     setPrinting(true)
     try {
       printImage(composite)
-      if (sessionId && !completed) {
-        await updateSession(sessionId, { status: 'completed' })
-        setCompleted(true)
-      }
+      await markComplete()
     } finally {
       setPrinting(false)
     }
@@ -80,10 +97,7 @@ export default function PrintPage() {
     const blob = dataURLtoBlob(composite)
     const code = generateSessionCode(sessionId ?? 'session')
     downloadBlob(blob, `nexabooth-${code}.jpg`)
-    if (sessionId && !completed) {
-      await updateSession(sessionId, { status: 'completed' })
-      setCompleted(true)
-    }
+    await markComplete()
   }
 
   async function handleShare() {
@@ -94,6 +108,34 @@ export default function PrintPage() {
       await navigator.share({ files: [file], title: 'My NexaBooth Photo' })
     } else {
       handleDownload()
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!emailVal || !sessionId) return
+    setSendingEmail(true)
+    try {
+      await sendEmail(sessionId, emailVal)
+      setEmailSent(true)
+      await markComplete()
+    } catch {
+      setError('Failed to send email')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
+  async function handleSendSms() {
+    if (!phoneVal || !sessionId) return
+    setSendingSms(true)
+    try {
+      await sendSms(sessionId, phoneVal)
+      setSmsSent(true)
+      await markComplete()
+    } catch {
+      setError('Failed to send SMS')
+    } finally {
+      setSendingSms(false)
     }
   }
 
@@ -148,7 +190,6 @@ export default function PrintPage() {
                 className="max-w-full rounded-2xl shadow-card"
                 style={{ maxHeight: 480, objectFit: 'contain' }}
               />
-              {/* Hidden print area */}
               <div id="print-area" className="hidden">
                 <img src={composite} alt="print" style={{ maxWidth: '100%' }} />
               </div>
@@ -192,6 +233,58 @@ export default function PrintPage() {
           </button>
         </div>
 
+        {/* Email delivery */}
+        <div className="card space-y-3">
+          <h3 className="font-semibold text-primary-900 flex items-center gap-2">
+            <Mail size={18} className="text-primary-500" />
+            Send to Email
+          </h3>
+          <div className="flex gap-2">
+            <input
+              type="email"
+              placeholder="your@email.com"
+              value={emailVal}
+              onChange={e => setEmailVal(e.target.value)}
+              className="input flex-1 text-sm"
+              disabled={emailSent}
+            />
+            <button
+              onClick={handleSendEmail}
+              disabled={!emailVal || sendingEmail || emailSent || !composite}
+              className="btn-primary px-4 py-2 text-sm flex items-center gap-1.5"
+            >
+              {sendingEmail ? <Spinner size="sm" /> : emailSent ? <CheckCircle size={16} /> : <Send size={16} />}
+              {emailSent ? 'Sent!' : 'Send'}
+            </button>
+          </div>
+        </div>
+
+        {/* SMS delivery */}
+        <div className="card space-y-3">
+          <h3 className="font-semibold text-primary-900 flex items-center gap-2">
+            <Phone size={18} className="text-primary-500" />
+            Send via WhatsApp / SMS
+          </h3>
+          <div className="flex gap-2">
+            <input
+              type="tel"
+              placeholder="+62 812 3456 7890"
+              value={phoneVal}
+              onChange={e => setPhoneVal(e.target.value)}
+              className="input flex-1 text-sm"
+              disabled={smsSent}
+            />
+            <button
+              onClick={handleSendSms}
+              disabled={!phoneVal || sendingSms || smsSent || !composite}
+              className="btn-primary px-4 py-2 text-sm flex items-center gap-1.5"
+            >
+              {sendingSms ? <Spinner size="sm" /> : smsSent ? <CheckCircle size={16} /> : <Send size={16} />}
+              {smsSent ? 'Sent!' : 'Send'}
+            </button>
+          </div>
+        </div>
+
         {/* QR Code */}
         {qrData && (
           <div className="card flex flex-col items-center gap-3">
@@ -207,6 +300,18 @@ export default function PrintPage() {
               #{sessionCode}
             </p>
           </div>
+        )}
+
+        {/* Survey CTA */}
+        {completed && !showSurvey && (
+          <button
+            onClick={() => setShowSurvey(true)}
+            className="card w-full text-center py-4 hover:shadow-card-hover transition"
+          >
+            <p className="text-2xl mb-1">⭐</p>
+            <p className="font-semibold text-primary-900 text-sm">Rate your experience</p>
+            <p className="text-xs text-primary-400">Tap to leave a review</p>
+          </button>
         )}
 
         {/* Canon printer tip */}
@@ -234,6 +339,10 @@ export default function PrintPage() {
           Back to Home
         </button>
       </div>
+
+      {showSurvey && sessionId && (
+        <SurveyModal sessionId={sessionId} onClose={() => setShowSurvey(false)} />
+      )}
     </div>
   )
 }
